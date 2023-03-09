@@ -1,0 +1,12 @@
+# Rust artifacts
+/target/
+
+# Nix artifacts
+result
+
+
+# Added by cargo
+
+/target
+
+.direnv/
