@@ -1,13 +1,11 @@
+use std::net::TcpStream;
 use std::str;
-use std::{
-    net::TcpStream,
-};
 
 #[path = "../buf.rs"]
 mod buf;
 use crate::buf::{read_full, write_all, HEADER_LEN, MAX_MSG_SIZE};
 
-fn query(connection: &mut TcpStream, text: &str) -> Result<(), std::io::Error> {
+fn send_request(connection: &mut TcpStream, text: &str) -> Result<(), std::io::Error> {
     let len = text.len();
     if len > MAX_MSG_SIZE {
         // TODO: Don't use this
@@ -23,6 +21,10 @@ fn query(connection: &mut TcpStream, text: &str) -> Result<(), std::io::Error> {
     write_buf[4..(4 + len)].copy_from_slice(text.as_bytes());
     write_all(connection, &mut write_buf, HEADER_LEN + len)?;
 
+    Ok(())
+}
+
+fn read_response(connection: &mut TcpStream) -> Result<(), std::io::Error> {
     let mut read_buf = [0u8; HEADER_LEN + MAX_MSG_SIZE + 1];
     read_full(connection, &mut read_buf, HEADER_LEN)?;
     let read_len = u32::from_le_bytes(read_buf[..4].try_into().unwrap());
@@ -46,7 +48,13 @@ fn main() {
     println!("hello world, i'm a client");
     let mut stream = TcpStream::connect("127.0.0.1:1234").expect("failed to connect");
 
-    query(&mut stream, "hello1").unwrap();
-    query(&mut stream, "hello2").unwrap();
-    query(&mut stream, "hello3").unwrap();
+    let query_list = vec!["hello1", "hello2", "hello3"];
+
+    for query in query_list.iter() {
+        send_request(&mut stream, query).unwrap();
+    }
+
+    for _ in query_list.iter() {
+        read_response(&mut stream).unwrap();
+    }
 }

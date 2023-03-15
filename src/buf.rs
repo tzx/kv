@@ -5,6 +5,8 @@ pub const MAX_MSG_SIZE: usize = 4096;
 // Header is 4 bytes indicating length of message
 pub const HEADER_LEN: usize = 4;
 
+// TODO: It should just be read_exact instead of doing the while loop
+
 pub fn read_full(
     connection: &mut TcpStream,
     read_buf: &mut [u8],
