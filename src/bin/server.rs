@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     io::{self, Read, Write},
     net::{TcpListener, TcpStream},
     str,
@@ -7,7 +7,16 @@ use std::{
 
 #[path = "../buf.rs"]
 mod buf;
-use crate::buf::{HEADER_LEN, MAX_MSG_SIZE};
+use crate::{
+    buf::{HEADER_LEN, MAX_MSG_SIZE},
+    messages::{Command, ResponseCode},
+};
+
+#[path = "../messages.rs"]
+mod messages;
+use crate::messages::to_cmd;
+
+type KV = HashMap<String, String>;
 
 #[derive(PartialEq, Eq)]
 enum ConnectionState {
@@ -38,7 +47,7 @@ fn new_connection(stream: TcpStream) -> Connection {
     }
 }
 
-fn try_one_request(connection: &mut Connection) -> bool {
+fn try_one_request(connection: &mut Connection, kv: &mut KV) -> bool {
     if connection.read_buf_size < 4 {
         // Not enough data to read size header -> retry
         return false;
@@ -61,11 +70,37 @@ fn try_one_request(connection: &mut Connection) -> bool {
         str::from_utf8(&connection.read_buf[HEADER_LEN..HEADER_LEN + len]).unwrap()
     );
 
-    // Generate echo response
-    connection.write_buf[..HEADER_LEN].copy_from_slice(&(len as u32).to_le_bytes());
-    connection.write_buf[HEADER_LEN..HEADER_LEN + len]
-        .copy_from_slice(&connection.read_buf[HEADER_LEN..HEADER_LEN + len]);
-    connection.write_buf_size += HEADER_LEN + len;
+    let (to_write, tw_len, code) =
+        match to_cmd(&connection.read_buf[HEADER_LEN..HEADER_LEN + len], len) {
+            Ok(_cmd) => match _cmd {
+                Command::Get(cmd) => {
+                    kv.get(cmd.key).map_or_else(
+                        || ("", 0, ResponseCode::Nonexistent),
+                        |v| (v.as_str(), v.len(), ResponseCode::Success),
+                    )
+                }
+                Command::Set(cmd) => {
+                    kv.insert(cmd.key.to_string(), cmd.value.to_string());
+                    ("", 0, ResponseCode::Success)
+                }
+                Command::Del(cmd) => {
+                    kv.remove(cmd.key);
+                    ("", 0, ResponseCode::Success)
+                }
+            },
+            Err(_) => {
+                let msg = "Cannot parse command!";
+                (msg, msg.len(), ResponseCode::Error)
+            }
+        };
+
+    // code is encode as 4 bytes in response
+    const CODE_LEN: usize = 4;
+    let total_len = tw_len + CODE_LEN;
+    connection.write_buf[..HEADER_LEN].copy_from_slice(&(total_len as u32).to_le_bytes());
+    connection.write_buf[HEADER_LEN..HEADER_LEN + CODE_LEN].copy_from_slice(&(code as u32).to_le_bytes());
+    connection.write_buf[HEADER_LEN + CODE_LEN..HEADER_LEN + CODE_LEN + tw_len].copy_from_slice(to_write.as_bytes());
+    connection.write_buf_size = HEADER_LEN + total_len;
 
     // Remove request from buffer
     // TODO: memmove sucks
@@ -86,6 +121,10 @@ fn try_one_request(connection: &mut Connection) -> bool {
 }
 
 fn main() {
+    // TODO: We should have a Server struct that stores the global hash table
+    // so we don't have to fucking that global hash table around (apparently called "tramp-data")
+    let mut kv: KV = HashMap::new();
+
     println!("hello i'm a server!");
     let listener = TcpListener::bind("127.0.0.1:1234").expect("Failed to bind");
     listener
@@ -103,9 +142,9 @@ fn main() {
         }
 
         // Process active connections
-        // TODO: Seems wrong LOL because we could be polling from listener for new connections
+        // TODO: This is  wrong LOL because we could be polling from listener for new connections
         while let Some(task) = tasks.pop_front() {
-            if let Some(task) = connection_io(task) {
+            if let Some(task) = connection_io(task, &mut kv) {
                 tasks.push_back(task)
             }
         }
@@ -120,10 +159,10 @@ fn accept_new_conn(v: &mut VecDeque<Connection>, stream: TcpStream) {
     v.push_back(connection);
 }
 
-fn connection_io(mut task: Connection) -> Option<Connection> {
+fn connection_io(mut task: Connection, kv: &mut KV) -> Option<Connection> {
     match task.state {
         ConnectionState::Reading => {
-            state_req(&mut task);
+            state_req(&mut task, kv);
             Some(task)
         }
         ConnectionState::Responding => {
@@ -134,12 +173,12 @@ fn connection_io(mut task: Connection) -> Option<Connection> {
     }
 }
 
-fn state_req(task: &mut Connection) {
-    while try_fill_buffer(task) {}
+fn state_req(task: &mut Connection, kv: &mut KV) {
+    while try_fill_buffer(task, kv) {}
 }
 
 // TODO: return Results and just end connections when errors occur
-fn try_fill_buffer(task: &mut Connection) -> bool {
+fn try_fill_buffer(task: &mut Connection, kv: &mut KV) -> bool {
     let cur_buf_size = task.read_buf_size;
     assert!(cur_buf_size < task.read_buf.len());
     let cap = task.read_buf.len() - cur_buf_size;
@@ -174,7 +213,7 @@ fn try_fill_buffer(task: &mut Connection) -> bool {
     assert!(task.read_buf_size <= task.read_buf.len());
 
     // While loop to handle pipelining
-    while try_one_request(task) {}
+    while try_one_request(task, kv) {}
 
     task.state == ConnectionState::Reading
 }

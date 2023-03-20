@@ -5,8 +5,14 @@ use std::str;
 mod buf;
 use crate::buf::{read_full, write_all, HEADER_LEN, MAX_MSG_SIZE};
 
-fn send_request(connection: &mut TcpStream, text: &str) -> Result<(), std::io::Error> {
-    let len = text.len();
+fn send_request(connection: &mut TcpStream, cmd: Vec<String>) -> Result<(), std::io::Error> {
+    const LEN_SIZE: usize = 4;
+    // nstr
+    let mut len = LEN_SIZE;
+    for s in cmd.iter() {
+        // lenstr
+        len += LEN_SIZE + s.len();
+    }
     if len > MAX_MSG_SIZE {
         // TODO: Don't use this
         return Err(std::io::Error::new(
@@ -14,13 +20,19 @@ fn send_request(connection: &mut TcpStream, text: &str) -> Result<(), std::io::E
             "Message too long",
         ));
     }
-
     let mut write_buf = [0u8; HEADER_LEN + MAX_MSG_SIZE];
-    // XXX: I am just going to do as although it is not the smart thing to do
-    write_buf[..4].copy_from_slice(&(len as u32).to_le_bytes());
-    write_buf[4..(4 + len)].copy_from_slice(text.as_bytes());
-    write_all(connection, &mut write_buf, HEADER_LEN + len)?;
+    write_buf[..HEADER_LEN].copy_from_slice(&(len as u32).to_le_bytes());
+    let nstr = cmd.len();
+    write_buf[HEADER_LEN..HEADER_LEN + LEN_SIZE].copy_from_slice(&(nstr as u32).to_le_bytes());
 
+    let mut cur = HEADER_LEN + LEN_SIZE;
+    for s in cmd.iter() {
+        let slen = s.len();
+        write_buf[cur..cur + LEN_SIZE].copy_from_slice(&(slen as u32).to_le_bytes());
+        write_buf[cur + LEN_SIZE..cur + LEN_SIZE + slen].copy_from_slice(s.as_bytes());
+        cur += LEN_SIZE + s.len();
+    }
+    write_all(connection, &mut write_buf, HEADER_LEN + len)?;
     Ok(())
 }
 
@@ -36,10 +48,12 @@ fn read_response(connection: &mut TcpStream) -> Result<(), std::io::Error> {
             "Message too long",
         ));
     }
-
     read_full(connection, &mut read_buf[4..], read_len as usize)?;
+
+    const CODE_SIZE: usize = 4;
+    let res_code = u32::from_le_bytes((read_buf[HEADER_LEN..HEADER_LEN + CODE_SIZE]).try_into().unwrap());
     read_buf[HEADER_LEN + read_len as usize] = 0;
-    println!("Server says: {}", str::from_utf8(&read_buf[4..]).unwrap());
+    println!("Server says: [{}] {}", res_code, str::from_utf8(&read_buf[4..]).unwrap());
 
     Ok(())
 }
@@ -48,13 +62,8 @@ fn main() {
     println!("hello world, i'm a client");
     let mut stream = TcpStream::connect("127.0.0.1:1234").expect("failed to connect");
 
-    let query_list = vec!["hello1", "hello2", "hello3"];
+    let cmd = std::env::args().skip(1);
+    send_request(&mut stream, cmd.collect()).unwrap();
 
-    for query in query_list.iter() {
-        send_request(&mut stream, query).unwrap();
-    }
-
-    for _ in query_list.iter() {
-        read_response(&mut stream).unwrap();
-    }
+    read_response(&mut stream).unwrap();
 }
