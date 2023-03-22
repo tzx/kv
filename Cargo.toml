@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
-  "kv",
-  "messages"
+  "client",
+  "messages",
+  "server",
 ]

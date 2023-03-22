@@ -3,7 +3,7 @@
 version = 3
 
 [[package]]
-name = "kv"
+name = "client"
 version = "0.1.0"
 dependencies = [
  "messages",
@@ -12,3 +12,10 @@ dependencies = [
 [[package]]
 name = "messages"
 version = "0.1.0"
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "messages",
+]
