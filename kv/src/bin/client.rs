@@ -1,9 +1,7 @@
 use std::net::TcpStream;
 use std::str;
 
-#[path = "../buf.rs"]
-mod buf;
-use crate::buf::{read_full, write_all, HEADER_LEN, MAX_MSG_SIZE};
+use messages::buf::{read_full, write_all, HEADER_LEN, MAX_MSG_SIZE};
 
 fn send_request(connection: &mut TcpStream, cmd: Vec<String>) -> Result<(), std::io::Error> {
     const LEN_SIZE: usize = 4;
@@ -51,9 +49,17 @@ fn read_response(connection: &mut TcpStream) -> Result<(), std::io::Error> {
     read_full(connection, &mut read_buf[4..], read_len as usize)?;
 
     const CODE_SIZE: usize = 4;
-    let res_code = u32::from_le_bytes((read_buf[HEADER_LEN..HEADER_LEN + CODE_SIZE]).try_into().unwrap());
+    let res_code = u32::from_le_bytes(
+        (read_buf[HEADER_LEN..HEADER_LEN + CODE_SIZE])
+            .try_into()
+            .unwrap(),
+    );
     read_buf[HEADER_LEN + read_len as usize] = 0;
-    println!("Server says: [{}] {}", res_code, str::from_utf8(&read_buf[4..]).unwrap());
+    println!(
+        "Server says: [{}] {}",
+        res_code,
+        str::from_utf8(&read_buf[4..]).unwrap()
+    );
 
     Ok(())
 }

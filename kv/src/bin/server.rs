@@ -5,16 +5,8 @@ use std::{
     str,
 };
 
-#[path = "../buf.rs"]
-mod buf;
-use crate::{
-    buf::{HEADER_LEN, MAX_MSG_SIZE},
-    messages::{Command, ResponseCode},
-};
-
-#[path = "../messages.rs"]
-mod messages;
-use crate::messages::to_cmd;
+use messages::buf::{HEADER_LEN, MAX_MSG_SIZE};
+use messages::{to_cmd, Command, ResponseCode};
 
 type KV = HashMap<String, String>;
 
@@ -73,12 +65,10 @@ fn try_one_request(connection: &mut Connection, kv: &mut KV) -> bool {
     let (to_write, tw_len, code) =
         match to_cmd(&connection.read_buf[HEADER_LEN..HEADER_LEN + len], len) {
             Ok(_cmd) => match _cmd {
-                Command::Get(cmd) => {
-                    kv.get(cmd.key).map_or_else(
-                        || ("", 0, ResponseCode::Nonexistent),
-                        |v| (v.as_str(), v.len(), ResponseCode::Success),
-                    )
-                }
+                Command::Get(cmd) => kv.get(cmd.key).map_or_else(
+                    || ("", 0, ResponseCode::Nonexistent),
+                    |v| (v.as_str(), v.len(), ResponseCode::Success),
+                ),
                 Command::Set(cmd) => {
                     kv.insert(cmd.key.to_string(), cmd.value.to_string());
                     ("", 0, ResponseCode::Success)
@@ -98,8 +88,10 @@ fn try_one_request(connection: &mut Connection, kv: &mut KV) -> bool {
     const CODE_LEN: usize = 4;
     let total_len = tw_len + CODE_LEN;
     connection.write_buf[..HEADER_LEN].copy_from_slice(&(total_len as u32).to_le_bytes());
-    connection.write_buf[HEADER_LEN..HEADER_LEN + CODE_LEN].copy_from_slice(&(code as u32).to_le_bytes());
-    connection.write_buf[HEADER_LEN + CODE_LEN..HEADER_LEN + CODE_LEN + tw_len].copy_from_slice(to_write.as_bytes());
+    connection.write_buf[HEADER_LEN..HEADER_LEN + CODE_LEN]
+        .copy_from_slice(&(code as u32).to_le_bytes());
+    connection.write_buf[HEADER_LEN + CODE_LEN..HEADER_LEN + CODE_LEN + tw_len]
+        .copy_from_slice(to_write.as_bytes());
     connection.write_buf_size = HEADER_LEN + total_len;
 
     // Remove request from buffer

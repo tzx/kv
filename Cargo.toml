@@ -1,12 +1,6 @@
-[package]
-name = "kv"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-[[bin]]
-name = "server"
-
-[[bin]]
-name = "client"
-
-[dependencies]
+members = [
+  "kv",
+  "messages"
+]

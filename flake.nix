@@ -17,19 +17,12 @@
         toolchain = fenix-stable.toolchain;
         pkgs = nixpkgs.legacyPackages.${system};
         nightly-rustfmt = fenix.packages.${system}.default.rustfmt;
-      in rec {
-        packages.default = (pkgs.makeRustPlatform {
-          cargo = toolchain;
-          rustc = toolchain;
-        }).buildRustPackage {
-          pname = "kv";
-          version = "0.1.0";
-          src = ./.;
-          cargoLock.lockFile = ./Cargo.lock;
-        };
-
+      in {
         devShells.default = pkgs.mkShell {
-          inputsFrom = [ packages.default ];
+          nativeBuildInputs = [
+            toolchain
+          ];
+
           packages = (with pkgs; [
             cargo-watch
             cargo-deny

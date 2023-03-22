@@ -5,10 +5,3 @@ version = 3
 [[package]]
 name = "kv"
 version = "0.1.0"
-dependencies = [
- "messages",
-]
-
-[[package]]
-name = "messages"
-version = "0.1.0"
