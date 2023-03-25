@@ -4,40 +4,16 @@ use std::{
     net::{TcpListener, TcpStream},
     str,
 };
-
 use messages::buf::{HEADER_LEN, MAX_MSG_SIZE};
 use messages::{to_cmd, Command, ResponseCode};
 
+mod connection;
+use connection::{Connection, ConnectionState};
+mod taskpollq;
+use pollq::PqFd;
+use taskpollq::TaskPollQueue;
+
 type KV = HashMap<String, String>;
-
-#[derive(PartialEq, Eq)]
-enum ConnectionState {
-    Reading,
-    Responding,
-    End,
-}
-
-struct Connection {
-    inner: TcpStream,
-    state: ConnectionState,
-    read_buf_size: usize,
-    read_buf: [u8; HEADER_LEN + MAX_MSG_SIZE],
-    write_buf_size: usize,
-    write_buf_sent: usize,
-    write_buf: [u8; HEADER_LEN + MAX_MSG_SIZE],
-}
-
-fn new_connection(stream: TcpStream) -> Connection {
-    Connection {
-        inner: stream,
-        state: ConnectionState::Reading,
-        read_buf: [0u8; HEADER_LEN + MAX_MSG_SIZE],
-        read_buf_size: 0,
-        write_buf: [0u8; HEADER_LEN + MAX_MSG_SIZE],
-        write_buf_size: 0,
-        write_buf_sent: 0,
-    }
-}
 
 fn try_one_request(connection: &mut Connection, kv: &mut KV) -> bool {
     if connection.read_buf_size < 4 {
@@ -112,42 +88,54 @@ fn try_one_request(connection: &mut Connection, kv: &mut KV) -> bool {
     connection.state == ConnectionState::Reading
 }
 
+fn handle_active(com: &PqFd, tpq: &mut TaskPollQueue) {
+    todo!();
+}
+
 fn main() {
     // TODO: We should have a Server struct that stores the global hash table
     // so we don't have to fucking that global hash table around (apparently called "tramp-data")
     let mut kv: KV = HashMap::new();
-
     println!("hello i'm a server!");
     let listener = TcpListener::bind("127.0.0.1:1234").expect("Failed to bind");
     listener
         .set_nonblocking(true)
         .expect("Cannot set listener to nonblocking");
 
-    let mut tasks = VecDeque::new();
-    // Event loop
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => accept_new_conn(&mut tasks, stream),
-            // Just continue for WouldBlock case
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => (),
-            Err(e) => panic!("encountered IO error: {e}"),
-        }
+    let mut tpq = TaskPollQueue::new(&listener);
 
-        // Process active connections
-        // TODO: This is  wrong LOL because we could be polling from listener for new connections
-        while let Some(task) = tasks.pop_front() {
-            if let Some(task) = connection_io(task, &mut kv) {
-                tasks.push_back(task)
-            }
+    loop {
+        let actives = tpq.poll_actives().expect("There was an error while polling!");
+        for com in actives.into_iter() {
+            handle_active(com, &mut tpq);
         }
     }
+
+    // let mut tasks = VecDeque::new();
+    // // Event loop
+    // for stream in listener.incoming() {
+    //     match stream {
+    //         Ok(stream) => accept_new_conn(&mut tasks, stream),
+    //         // Just continue for WouldBlock case
+    //         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => (),
+    //         Err(e) => panic!("encountered IO error: {e}"),
+    //     }
+
+    //     // Process active connections
+    //     // TODO: This is  wrong LOL because we could be polling from listener for new connections
+    //     while let Some(task) = tasks.pop_front() {
+    //         if let Some(task) = connection_io(task, &mut kv) {
+    //             tasks.push_back(task)
+    //         }
+    //     }
+    // }
 }
 
 fn accept_new_conn(v: &mut VecDeque<Connection>, stream: TcpStream) {
     stream
         .set_nonblocking(true)
         .expect("Failed to set stream to nonblocking");
-    let connection = new_connection(stream);
+    let connection = Connection::new(stream);
     v.push_back(connection);
 }
 
